@@ -1,4 +1,4 @@
-module github.com/vicanso/performance
+module github.com/vicanso/go-performance
 
 go 1.15
 
