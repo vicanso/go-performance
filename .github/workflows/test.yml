@@ -2,9 +2,9 @@ name: Test
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
 
@@ -41,6 +41,3 @@ jobs:
 
     - name: Test
       run: make test
-
-    - name: Bench
-      run: make bench
