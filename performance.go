@@ -59,10 +59,10 @@ type (
 	}
 	// ConnStats conn stats
 	ConnStats struct {
-		ConnProcessing     int32
-		ConnProcessedCount int64
-		ConnAlive          int32
-		ConnCreatedCount   int64
+		ConnProcessing     int32 `json:"connProcessing,omitempty"`
+		ConnProcessedCount int64 `json:"connProcessedCount,omitempty"`
+		ConnAlive          int32 `json:"connAlive,omitempty"`
+		ConnCreatedCount   int64 `json:"connCreatedCount,omitempty"`
 	}
 )
 
