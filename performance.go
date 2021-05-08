@@ -54,8 +54,9 @@ type concurrency struct {
 type (
 	// httpServerConnStats http server conn的统计
 	httpServerConnStats struct {
-		aliveConcurrency   concurrency
-		processConcurrency concurrency
+		connectionForceClose bool
+		aliveConcurrency     concurrency
+		processConcurrency   concurrency
 	}
 	// ConnStats conn stats
 	ConnStats struct {
@@ -107,6 +108,8 @@ func NewConcurrency() *concurrency {
 
 // ConnState conn state change function
 func (hs *httpServerConnStats) ConnState(c net.Conn, cs http.ConnState) {
+	// 如果HTTP客户端调用时设置请求头Connection: close
+	// 则状态为new->active->closed
 	switch cs {
 	case http.StateNew:
 		hs.aliveConcurrency.Inc()
@@ -117,6 +120,10 @@ func (hs *httpServerConnStats) ConnState(c net.Conn, cs http.ConnState) {
 	case http.StateHijacked:
 		fallthrough
 	case http.StateClosed:
+		// 如果连接是强制关闭的，则需要在关闭时对正在处理请求-1
+		if hs.connectionForceClose {
+			hs.processConcurrency.Dec()
+		}
 		hs.aliveConcurrency.Dec()
 	}
 }
@@ -134,6 +141,11 @@ func (hs *httpServerConnStats) Stats() ConnStats {
 // NewHttpServerConnStats create a new http server conn stats
 func NewHttpServerConnStats() *httpServerConnStats {
 	return &httpServerConnStats{}
+}
+
+// SetConnectionClose set connection whether force to close
+func (hs *httpServerConnStats) SetConnectionClose(connectionForceClose bool) {
+	hs.connectionForceClose = connectionForceClose
 }
 
 // UpdateCPUUsage 更新cpu使用率
