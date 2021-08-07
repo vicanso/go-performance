@@ -265,10 +265,32 @@ func CurrentCPUMemory(ctx context.Context) CPUMemory {
 	}
 }
 
+// IOCounters returns the conters stats info
 func IOCounters(ctx context.Context) (*process.IOCountersStat, error) {
 	return currentProcess.IOCountersWithContext(ctx)
 }
 
+// Connections returns the connections stats
 func Connections(ctx context.Context) ([]pnet.ConnectionStat, error) {
 	return currentProcess.ConnectionsWithContext(ctx)
+}
+
+// NumCtxSwitches returns the switch stats of process
+func NumCtxSwitches(ctx context.Context) (*process.NumCtxSwitchesStat, error) {
+	return currentProcess.NumCtxSwitchesWithContext(ctx)
+}
+
+// NumFds returns the count of fd
+func NumFds(ctx context.Context) (int32, error) {
+	return currentProcess.NumFDsWithContext(ctx)
+}
+
+// PageFaults returns page fault stats
+func PageFaults(ctx context.Context) (*process.PageFaultsStat, error) {
+	return currentProcess.PageFaultsWithContext(ctx)
+}
+
+// OpenFiles returns open file stats
+func OpenFiles(ctx context.Context) ([]process.OpenFilesStat, error) {
+	return currentProcess.OpenFilesWithContext(ctx)
 }

@@ -83,3 +83,42 @@ func TestConnections(t *testing.T) {
 	assert.Nil(err)
 	assert.NotNil(connStats)
 }
+
+func TestNumCtxSwitches(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	assert := assert.New(t)
+	stats, err := NumCtxSwitches(context.Background())
+	assert.Nil(err)
+	assert.NotNil(stats)
+}
+
+func TestNumFds(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	assert := assert.New(t)
+	_, err := NumFds(context.Background())
+	assert.Nil(err)
+}
+
+func TestPageFaults(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	assert := assert.New(t)
+	stat, err := PageFaults(context.Background())
+	assert.Nil(err)
+	assert.NotNil(stat)
+}
+
+func TestOpenFiles(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	assert := assert.New(t)
+	stats, err := OpenFiles(context.Background())
+	assert.Nil(err)
+	assert.NotNil(stats)
+}
