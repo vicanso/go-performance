@@ -15,34 +15,70 @@
 package performance
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"os"
 	"runtime"
 	"time"
 
+	pnet "github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 	"go.uber.org/atomic"
 )
 
 // CPUMemory 应用CPU与Memory相关指标
 type CPUMemory struct {
-	GoMaxProcs    int           `json:"goMaxProcs,omitempty"`
-	ThreadCount   int32         `json:"threadCount,omitempty"`
-	MemSys        int           `json:"memSys,omitempty"`
-	MemHeapSys    int           `json:"memHeapSys,omitempty"`
-	MemHeapInuse  int           `json:"memHeapInuse,omitempty"`
-	MemFrees      uint64        `json:"memFrees,omitempty"`
-	RoutineCount  int           `json:"routineCount,omitempty"`
-	CPUUsage      int32         `json:"cpuUsage,omitempty"`
+	GoMaxProcs   int   `json:"goMaxProcs,omitempty"`
+	ThreadCount  int32 `json:"threadCount,omitempty"`
+	RoutineCount int   `json:"routineCount,omitempty"`
+
+	CPUUser      int
+	CPUSystem    int
+	CPUIdle      int
+	CPUNice      int
+	CPUIowait    int
+	CPUIrq       int
+	CPUSoftirq   int
+	CPUSteal     int
+	CPUGuest     int
+	CPUGuestNice int
+	CPUUsage     int32  `json:"cpuUsage,omitempty"`
+	CPUBusy      string `json:"cpuBusy,omitempty"`
+
+	MemAlloc      int    `json:"memAlloc"`
+	MemTotalAlloc int    `json:"memTotalAlloc"`
+	MemSys        int    `json:"memSys,omitempty"`
+	MemLookups    uint64 `json:"memLookups"`
+	MemMallocs    uint64 `json:"memMallocs"`
+	MemFrees      uint64 `json:"memFrees,omitempty"`
+
+	MemHeapAlloc    int    `json:"memHeapAlloc"`
+	MemHeapSys      int    `json:"memHeapSys,omitempty"`
+	MemHeapIdle     int    `json:"memHeapIdle"`
+	MemHeapInuse    int    `json:"memHeapInuse,omitempty"`
+	MemHeapReleased int    `json:"memHeapReleased"`
+	MemHeapObjects  uint64 `json:"memHeapObjects"`
+
+	MemStackInuse int `json:"memStackInuse"`
+	MemStackSys   int `json:"memStackSys"`
+
+	MemMSpanInuse  int `json:"memMSpanInuse"`
+	MemMSpanSys    int `json:"memMSpanSys"`
+	MemMCacheInuse int `json:"memMCacheInuse"`
+	MemMCacheSys   int `json:"memMCacheSys"`
+	MemBuckHashSys int `json:"memBuckHashSys"`
+
+	MemGCSys    int `json:"memGCSys"`
+	MemOtherSys int `json:"memOtherSys"`
+
 	LastGC        time.Time     `json:"lastGC,omitempty"`
 	NumGC         uint32        `json:"numGC,omitempty"`
+	NumForcedGC   uint32        `json:"numForcedGC"`
 	RecentPause   string        `json:"recentPause,omitempty"`
 	RecentPauseNs time.Duration `json:"recentPauseNs,omitempty"`
 	PauseTotal    string        `json:"pauseTotal,omitempty"`
 	PauseTotalNs  time.Duration `json:"pauseTotalNs,omitempty"`
-	CPUBusy       string        `json:"cpuBusy,omitempty"`
-	Uptime        string        `json:"uptime,omitempty"`
 	PauseNs       [256]uint64   `json:"pauseNs,omitempty"`
 }
 
@@ -159,36 +195,80 @@ func UpdateCPUUsage() error {
 }
 
 // CurrentCPUMemory 获取当前应用性能指标
-func CurrentCPUMemory() CPUMemory {
+func CurrentCPUMemory(ctx context.Context) CPUMemory {
 	var mb uint64 = 1024 * 1024
 	m := &runtime.MemStats{}
 	runtime.ReadMemStats(m)
 	seconds := int64(m.LastGC) / int64(time.Second)
 	recentPauseNs := time.Duration(int64(m.PauseNs[(m.NumGC+255)%256]))
 	pauseTotalNs := time.Duration(int64(m.PauseTotalNs))
-	cpuTimes, _ := currentProcess.Times()
+	cpuTimes, _ := currentProcess.TimesWithContext(ctx)
 	cpuBusy := ""
 	if cpuTimes != nil {
 		busy := time.Duration(int64(cpuTimes.Total()-cpuTimes.Idle)) * time.Second
 		cpuBusy = busy.String()
 	}
-	threadCount, _ := currentProcess.NumThreads()
+	threadCount, _ := currentProcess.NumThreadsWithContext(ctx)
 	return CPUMemory{
-		GoMaxProcs:    runtime.GOMAXPROCS(0),
-		ThreadCount:   threadCount,
+		GoMaxProcs:   runtime.GOMAXPROCS(0),
+		ThreadCount:  threadCount,
+		RoutineCount: runtime.NumGoroutine(),
+
+		CPUUsage:     cpuUsage.Load(),
+		CPUBusy:      cpuBusy,
+		CPUUser:      int(cpuTimes.User),
+		CPUSystem:    int(cpuTimes.System),
+		CPUIdle:      int(cpuTimes.Idle),
+		CPUNice:      int(cpuTimes.Nice),
+		CPUIowait:    int(cpuTimes.Iowait),
+		CPUIrq:       int(cpuTimes.Irq),
+		CPUSoftirq:   int(cpuTimes.Softirq),
+		CPUSteal:     int(cpuTimes.Steal),
+		CPUGuest:     int(cpuTimes.Guest),
+		CPUGuestNice: int(cpuTimes.GuestNice),
+
+		MemAlloc:      int(m.Alloc / mb),
+		MemTotalAlloc: int(m.TotalAlloc / mb),
 		MemSys:        int(m.Sys / mb),
-		MemHeapSys:    int(m.HeapSys / mb),
-		MemHeapInuse:  int(m.HeapInuse / mb),
+		MemLookups:    m.Lookups,
+		MemMallocs:    m.Mallocs,
 		MemFrees:      m.Frees,
-		RoutineCount:  runtime.NumGoroutine(),
-		CPUUsage:      cpuUsage.Load(),
-		LastGC:        time.Unix(seconds, 0),
-		NumGC:         m.NumGC,
+
+		MemHeapAlloc:    int(m.HeapAlloc / mb),
+		MemHeapSys:      int(m.HeapSys / mb),
+		MemHeapIdle:     int(m.HeapIdle / mb),
+		MemHeapInuse:    int(m.HeapInuse / mb),
+		MemHeapReleased: int(m.HeapReleased / mb),
+		MemHeapObjects:  m.HeapObjects,
+
+		MemStackInuse: int(m.StackInuse / mb),
+		MemStackSys:   int(m.StackSys / mb),
+
+		MemMSpanInuse:  int(m.StackInuse / mb),
+		MemMSpanSys:    int(m.MSpanSys / mb),
+		MemMCacheInuse: int(m.MCacheInuse / mb),
+		MemMCacheSys:   int(m.MCacheSys / mb),
+		MemBuckHashSys: int(m.BuckHashSys / mb),
+
+		MemGCSys:    int(m.GCSys / mb),
+		MemOtherSys: int(m.OtherSys / mb),
+
+		LastGC:      time.Unix(seconds, 0),
+		NumGC:       m.NumGC,
+		NumForcedGC: m.NumForcedGC,
+
 		RecentPause:   recentPauseNs.String(),
 		RecentPauseNs: recentPauseNs,
 		PauseTotal:    pauseTotalNs.String(),
 		PauseTotalNs:  pauseTotalNs,
-		CPUBusy:       cpuBusy,
 		PauseNs:       m.PauseNs,
 	}
+}
+
+func IOCounters(ctx context.Context) (*process.IOCountersStat, error) {
+	return currentProcess.IOCountersWithContext(ctx)
+}
+
+func Connections(ctx context.Context) ([]pnet.ConnectionStat, error) {
+	return currentProcess.ConnectionsWithContext(ctx)
 }

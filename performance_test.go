@@ -15,7 +15,9 @@
 package performance
 
 import (
+	"context"
 	"net/http"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,8 +58,28 @@ func TestHttpServerConnStats(t *testing.T) {
 func TestCPUMemory(t *testing.T) {
 	assert := assert.New(t)
 
-	cpuMemory := CurrentCPUMemory()
+	cpuMemory := CurrentCPUMemory(context.Background())
 	assert.NotEmpty(cpuMemory.GoMaxProcs)
 	assert.NotEmpty(cpuMemory.ThreadCount)
 	assert.NotEmpty(cpuMemory.MemSys)
+}
+
+func TestIOCounters(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	assert := assert.New(t)
+	ioStat, err := IOCounters(context.Background())
+	assert.Nil(err)
+	assert.NotNil(ioStat)
+}
+
+func TestConnections(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	assert := assert.New(t)
+	connStats, err := Connections(context.Background())
+	assert.Nil(err)
+	assert.NotNil(connStats)
 }
