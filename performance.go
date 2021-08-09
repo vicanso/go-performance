@@ -84,9 +84,9 @@ type CPUMemory struct {
 }
 
 type ConnectionsCount struct {
-	Status     map[string]int
-	RemoteAddr map[string]int
-	Count      int
+	Status     map[string]int `json:"status"`
+	RemoteAddr map[string]int `json:"remoteAddr"`
+	Count      int            `json:"count"`
 }
 
 // concurrency 记录并发量与总量
