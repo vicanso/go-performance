@@ -85,8 +85,8 @@ func TestConnections(t *testing.T) {
 	assert.NotNil(connStats)
 	count, err := ConnectionsStat(context.Background())
 	assert.Nil((err))
-	assert.Equal(1, count.Count)
-	assert.Equal(1, count.Status["LISTEN"])
+	assert.NotEmpty(count.Count)
+	assert.NotEmpty(count.Status["LISTEN"])
 }
 
 func TestNumCtxSwitches(t *testing.T) {
