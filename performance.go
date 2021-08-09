@@ -16,6 +16,7 @@ package performance
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -29,34 +30,34 @@ import (
 
 // CPUMemory 应用CPU与Memory相关指标
 type CPUMemory struct {
-	GoMaxProcs   int   `json:"goMaxProcs,omitempty"`
-	ThreadCount  int32 `json:"threadCount,omitempty"`
-	RoutineCount int   `json:"routineCount,omitempty"`
+	GoMaxProcs   int   `json:"goMaxProcs"`
+	ThreadCount  int32 `json:"threadCount"`
+	RoutineCount int   `json:"routineCount"`
 
-	CPUUser      int
-	CPUSystem    int
-	CPUIdle      int
-	CPUNice      int
-	CPUIowait    int
-	CPUIrq       int
-	CPUSoftirq   int
-	CPUSteal     int
-	CPUGuest     int
-	CPUGuestNice int
-	CPUUsage     int32  `json:"cpuUsage,omitempty"`
-	CPUBusy      string `json:"cpuBusy,omitempty"`
+	CPUUser      int    `json:"cpuUser"`
+	CPUSystem    int    `json:"cpuSystem"`
+	CPUIdle      int    `json:"cpuIdle"`
+	CPUNice      int    `json:"cpuNice"`
+	CPUIowait    int    `json:"cpuIowait"`
+	CPUIrq       int    `json:"cpuIrq"`
+	CPUSoftirq   int    `json:"cpuSoftirq"`
+	CPUSteal     int    `json:"cpuSteal"`
+	CPUGuest     int    `json:"cpuGuest"`
+	CPUGuestNice int    `json:"cpuGuestNice"`
+	CPUUsage     int32  `json:"cpuUsage"`
+	CPUBusy      string `json:"cpuBusy"`
 
 	MemAlloc      int    `json:"memAlloc"`
 	MemTotalAlloc int    `json:"memTotalAlloc"`
-	MemSys        int    `json:"memSys,omitempty"`
+	MemSys        int    `json:"memSys"`
 	MemLookups    uint64 `json:"memLookups"`
 	MemMallocs    uint64 `json:"memMallocs"`
-	MemFrees      uint64 `json:"memFrees,omitempty"`
+	MemFrees      uint64 `json:"memFrees"`
 
 	MemHeapAlloc    int    `json:"memHeapAlloc"`
-	MemHeapSys      int    `json:"memHeapSys,omitempty"`
+	MemHeapSys      int    `json:"memHeapSys"`
 	MemHeapIdle     int    `json:"memHeapIdle"`
-	MemHeapInuse    int    `json:"memHeapInuse,omitempty"`
+	MemHeapInuse    int    `json:"memHeapInuse"`
 	MemHeapReleased int    `json:"memHeapReleased"`
 	MemHeapObjects  uint64 `json:"memHeapObjects"`
 
@@ -72,14 +73,20 @@ type CPUMemory struct {
 	MemGCSys    int `json:"memGCSys"`
 	MemOtherSys int `json:"memOtherSys"`
 
-	LastGC        time.Time     `json:"lastGC,omitempty"`
-	NumGC         uint32        `json:"numGC,omitempty"`
+	LastGC        time.Time     `json:"lastGC"`
+	NumGC         uint32        `json:"numGC"`
 	NumForcedGC   uint32        `json:"numForcedGC"`
-	RecentPause   string        `json:"recentPause,omitempty"`
-	RecentPauseNs time.Duration `json:"recentPauseNs,omitempty"`
-	PauseTotal    string        `json:"pauseTotal,omitempty"`
-	PauseTotalNs  time.Duration `json:"pauseTotalNs,omitempty"`
-	PauseNs       [256]uint64   `json:"pauseNs,omitempty"`
+	RecentPause   string        `json:"recentPause"`
+	RecentPauseNs time.Duration `json:"recentPauseNs"`
+	PauseTotal    string        `json:"pauseTotal"`
+	PauseTotalNs  time.Duration `json:"pauseTotalNs"`
+	PauseNs       [256]uint64   `json:"pauseNs"`
+}
+
+type ConnectionsCount struct {
+	Status     map[string]int
+	RemoteAddr map[string]int
+	Count      int
 }
 
 // concurrency 记录并发量与总量
@@ -96,10 +103,10 @@ type (
 	}
 	// ConnStats conn stats
 	ConnStats struct {
-		ConnProcessing     int32 `json:"connProcessing,omitempty"`
-		ConnProcessedCount int64 `json:"connProcessedCount,omitempty"`
-		ConnAlive          int32 `json:"connAlive,omitempty"`
-		ConnCreatedCount   int64 `json:"connCreatedCount,omitempty"`
+		ConnProcessing     int32 `json:"connProcessing"`
+		ConnProcessedCount int64 `json:"connProcessedCount"`
+		ConnAlive          int32 `json:"connAlive"`
+		ConnCreatedCount   int64 `json:"connCreatedCount"`
 	}
 )
 
@@ -273,6 +280,32 @@ func IOCounters(ctx context.Context) (*process.IOCountersStat, error) {
 // Connections returns the connections stats
 func Connections(ctx context.Context) ([]pnet.ConnectionStat, error) {
 	return currentProcess.ConnectionsWithContext(ctx)
+}
+
+// ConnectionsStat return the count of connections stats
+func ConnectionsStat(ctx context.Context) (*ConnectionsCount, error) {
+	stats, err := Connections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	count := ConnectionsCount{
+		Status:     map[string]int{},
+		RemoteAddr: map[string]int{},
+	}
+	for _, item := range stats {
+		count.Count++
+		if item.Status != "" {
+			count.Status[item.Status] = count.Status[item.Status] + 1
+		}
+		addr := item.Raddr.IP
+		if item.Raddr.Port != 0 {
+			addr += fmt.Sprintf(":%d", item.Raddr.Port)
+		}
+		if addr != "" {
+			count.RemoteAddr[addr] = count.RemoteAddr[addr] + 1
+		}
+	}
+	return &count, nil
 }
 
 // NumCtxSwitches returns the switch stats of process

@@ -16,6 +16,7 @@ package performance
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"runtime"
 	"testing"
@@ -75,13 +76,17 @@ func TestIOCounters(t *testing.T) {
 }
 
 func TestConnections(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		return
-	}
 	assert := assert.New(t)
+	net, err := net.Listen("tcp", "127.0.0.1:")
+	assert.Nil(err)
+	defer net.Close()
 	connStats, err := Connections(context.Background())
 	assert.Nil(err)
 	assert.NotNil(connStats)
+	count, err := ConnectionsStat(context.Background())
+	assert.Nil((err))
+	assert.Equal(1, count.Count)
+	assert.Equal(1, count.Status["LISTEN"])
 }
 
 func TestNumCtxSwitches(t *testing.T) {
