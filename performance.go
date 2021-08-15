@@ -152,6 +152,10 @@ func NewConcurrency() *concurrency {
 func (hs *httpServerConnStats) ConnState(c net.Conn, cs http.ConnState) {
 	// 如果HTTP客户端调用时设置请求头Connection: close
 	// 则状态为new->active->closed
+	// 其它的是
+	// new->active->idle
+	// idle -> active
+	// idle -> close
 	switch cs {
 	case http.StateNew:
 		hs.aliveConcurrency.Inc()
