@@ -58,6 +58,8 @@ func TestHttpServerConnStats(t *testing.T) {
 
 func TestCPUMemory(t *testing.T) {
 	assert := assert.New(t)
+	err := UpdateCPUUsage(context.Background())
+	assert.Nil(err)
 
 	cpuMemory := CurrentCPUMemory(context.Background())
 	assert.NotEmpty(cpuMemory.GoMaxProcs)

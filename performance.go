@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/shirou/gopsutil/v3/cpu"
 	pnet "github.com/shirou/gopsutil/v3/net"
 	"github.com/shirou/gopsutil/v3/process"
 	"go.uber.org/atomic"
@@ -107,11 +108,16 @@ type (
 		ConnAlive          int32 `json:"connAlive"`
 		ConnCreatedCount   int64 `json:"connCreatedCount"`
 	}
+	cpuTimeStats struct {
+		Time time.Time
+		Last *cpu.TimesStat
+	}
 )
 
 // cpuUsage cpu使用率
 var cpuUsage atomic.Int32
 var currentProcess *process.Process
+var lastCPUTimeStats *cpuTimeStats
 
 func init() {
 	p, err := process.NewProcess(int32(os.Getpid()))
@@ -119,7 +125,9 @@ func init() {
 		panic(err)
 	}
 	currentProcess = p
-	_ = UpdateCPUUsage()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = UpdateCPUUsage(ctx)
 }
 
 // Inc inc
@@ -192,13 +200,33 @@ func NewHttpServerConnStats() *httpServerConnStats {
 	return &httpServerConnStats{}
 }
 
+func calculatePercent(t1, t2 *cpu.TimesStat, delta float64, numcpu int) float64 {
+	if delta == 0 {
+		return 0
+	}
+	delta_proc := t2.Total() - t1.Total()
+	overall_percent := ((delta_proc / delta) * 100) * float64(numcpu)
+	return overall_percent
+}
+
 // UpdateCPUUsage 更新cpu使用率
-func UpdateCPUUsage() error {
-	usage, err := currentProcess.Percent(0)
+func UpdateCPUUsage(ctx context.Context) error {
+	cpuTimes, err := currentProcess.TimesWithContext(ctx)
 	if err != nil {
 		return err
 	}
-	cpuUsage.Store(int32(usage))
+	now := time.Now()
+	if lastCPUTimeStats != nil {
+		numcpu := runtime.NumCPU()
+		delta := (now.Sub(lastCPUTimeStats.Time).Seconds()) * float64(numcpu)
+		usage := calculatePercent(lastCPUTimeStats.Last, cpuTimes, delta, numcpu)
+		cpuUsage.Store(int32(usage))
+	}
+	lastCPUTimeStats = &cpuTimeStats{
+		Time: now,
+		Last: cpuTimes,
+	}
+
 	return nil
 }
 
@@ -208,13 +236,20 @@ func CurrentCPUMemory(ctx context.Context) CPUMemory {
 	m := &runtime.MemStats{}
 	runtime.ReadMemStats(m)
 	seconds := int64(m.LastGC) / int64(time.Second)
-	recentPauseNs := time.Duration(int64(m.PauseNs[(m.NumGC+255)%256]))
+	size := uint32(len(m.PauseNs))
+	index := (m.NumGC + size - 1) % size
+	recentPauseNs := time.Duration(int64(m.PauseNs[index]))
 	pauseTotalNs := time.Duration(int64(m.PauseTotalNs))
-	cpuTimes, _ := currentProcess.TimesWithContext(ctx)
+	var cpuTimes *cpu.TimesStat
+	if lastCPUTimeStats != nil {
+		cpuTimes = lastCPUTimeStats.Last
+	}
 	cpuBusy := ""
 	if cpuTimes != nil {
 		busy := time.Duration(int64(cpuTimes.Total()-cpuTimes.Idle)) * time.Second
 		cpuBusy = busy.String()
+	} else {
+		cpuTimes = &cpu.TimesStat{}
 	}
 	threadCount, _ := currentProcess.NumThreadsWithContext(ctx)
 	return CPUMemory{
