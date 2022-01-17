@@ -82,12 +82,21 @@ type CPUMemory struct {
 	PauseTotal    string        `json:"pauseTotal"`
 	PauseTotalNs  time.Duration `json:"pauseTotalNs"`
 	PauseNs       [256]uint64   `json:"pauseNs"`
+
+	// 各指标收集耗时
+	// 内存指标
+	MemStatsTook time.Duration
+	// 线程指标
+	ThreadCountStatsTook time.Duration
+	// CPU使用
+	CPUTimeStatsTook time.Duration
 }
 
 type ConnectionsCount struct {
 	Status     map[string]int `json:"status"`
 	RemoteAddr map[string]int `json:"remoteAddr"`
 	Count      int            `json:"count"`
+	Took       time.Duration  `json:"took"`
 }
 
 // concurrency 记录并发量与总量
@@ -111,6 +120,7 @@ type (
 	cpuTimeStats struct {
 		Time time.Time
 		Last *cpu.TimesStat
+		Took time.Duration
 	}
 )
 
@@ -211,6 +221,7 @@ func calculatePercent(t1, t2 *cpu.TimesStat, delta float64, numcpu int) float64 
 
 // UpdateCPUUsage 更新cpu使用率
 func UpdateCPUUsage(ctx context.Context) error {
+	start := time.Now()
 	cpuTimes, err := currentProcess.TimesWithContext(ctx)
 	if err != nil {
 		return err
@@ -225,6 +236,7 @@ func UpdateCPUUsage(ctx context.Context) error {
 	lastCPUTimeStats = &cpuTimeStats{
 		Time: now,
 		Last: cpuTimes,
+		Took: time.Since(start),
 	}
 
 	return nil
@@ -233,16 +245,20 @@ func UpdateCPUUsage(ctx context.Context) error {
 // CurrentCPUMemory 获取当前应用性能指标
 func CurrentCPUMemory(ctx context.Context) CPUMemory {
 	var mb uint64 = 1024 * 1024
+	memStatsStart := time.Now()
 	m := &runtime.MemStats{}
 	runtime.ReadMemStats(m)
+	memStatsTook := time.Since(memStatsStart)
 	seconds := int64(m.LastGC) / int64(time.Second)
 	size := uint32(len(m.PauseNs))
 	index := (m.NumGC + size - 1) % size
 	recentPauseNs := time.Duration(int64(m.PauseNs[index]))
 	pauseTotalNs := time.Duration(int64(m.PauseTotalNs))
 	var cpuTimes *cpu.TimesStat
+	var cpuTimeStatsTook time.Duration
 	if lastCPUTimeStats != nil {
 		cpuTimes = lastCPUTimeStats.Last
+		cpuTimeStatsTook = lastCPUTimeStats.Took
 	}
 	cpuBusy := ""
 	if cpuTimes != nil {
@@ -251,7 +267,9 @@ func CurrentCPUMemory(ctx context.Context) CPUMemory {
 	} else {
 		cpuTimes = &cpu.TimesStat{}
 	}
+	threadCountStatsStart := time.Now()
 	threadCount, _ := currentProcess.NumThreadsWithContext(ctx)
+	threadCountStatsTook := time.Since(threadCountStatsStart)
 	return CPUMemory{
 		GoMaxProcs:   runtime.GOMAXPROCS(0),
 		ThreadCount:  threadCount,
@@ -305,17 +323,47 @@ func CurrentCPUMemory(ctx context.Context) CPUMemory {
 		PauseTotal:    pauseTotalNs.String(),
 		PauseTotalNs:  pauseTotalNs,
 		PauseNs:       m.PauseNs,
+
+		MemStatsTook:         memStatsTook,
+		ThreadCountStatsTook: threadCountStatsTook,
+		CPUTimeStatsTook:     cpuTimeStatsTook,
 	}
 }
 
+type IOCountersStat struct {
+	process.IOCountersStat
+	Took time.Duration `json:"took"`
+}
+
 // IOCounters returns the conters stats info
-func IOCounters(ctx context.Context) (*process.IOCountersStat, error) {
-	return currentProcess.IOCountersWithContext(ctx)
+func IOCounters(ctx context.Context) (*IOCountersStat, error) {
+	start := time.Now()
+	stat, err := currentProcess.IOCountersWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &IOCountersStat{
+		IOCountersStat: *stat,
+		Took:           time.Since(start),
+	}, nil
+}
+
+type ConnectionStat struct {
+	Connections []pnet.ConnectionStat `json:"connections"`
+	Took        time.Duration         `json:"took"`
 }
 
 // Connections returns the connections stats
-func Connections(ctx context.Context) ([]pnet.ConnectionStat, error) {
-	return currentProcess.ConnectionsWithContext(ctx)
+func Connections(ctx context.Context) (*ConnectionStat, error) {
+	start := time.Now()
+	connections, err := currentProcess.ConnectionsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ConnectionStat{
+		Connections: connections,
+		Took:        time.Since(start),
+	}, nil
 }
 
 // ConnectionsStat return the count of connections stats
@@ -327,8 +375,9 @@ func ConnectionsStat(ctx context.Context) (*ConnectionsCount, error) {
 	count := ConnectionsCount{
 		Status:     map[string]int{},
 		RemoteAddr: map[string]int{},
+		Took:       stats.Took,
 	}
-	for _, item := range stats {
+	for _, item := range stats.Connections {
 		count.Count++
 		if item.Status != "" {
 			count.Status[item.Status] = count.Status[item.Status] + 1
@@ -344,22 +393,74 @@ func ConnectionsStat(ctx context.Context) (*ConnectionsCount, error) {
 	return &count, nil
 }
 
+type NumCtxSwitchesStat struct {
+	process.NumCtxSwitchesStat
+	Took time.Duration `json:"took"`
+}
+
 // NumCtxSwitches returns the switch stats of process
-func NumCtxSwitches(ctx context.Context) (*process.NumCtxSwitchesStat, error) {
-	return currentProcess.NumCtxSwitchesWithContext(ctx)
+func NumCtxSwitches(ctx context.Context) (*NumCtxSwitchesStat, error) {
+	start := time.Now()
+	stat, err := currentProcess.NumCtxSwitchesWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &NumCtxSwitchesStat{
+		NumCtxSwitchesStat: *stat,
+		Took:               time.Since(start),
+	}, nil
+}
+
+type NumFdsStat struct {
+	Fds  int32         `json:"fds"`
+	Took time.Duration `json:"took"`
 }
 
 // NumFds returns the count of fd
-func NumFds(ctx context.Context) (int32, error) {
-	return currentProcess.NumFDsWithContext(ctx)
+func NumFds(ctx context.Context) (*NumFdsStat, error) {
+	start := time.Now()
+	fds, err := currentProcess.NumFDsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &NumFdsStat{
+		Fds:  fds,
+		Took: time.Since(start),
+	}, nil
+}
+
+type PageFaultsStat struct {
+	process.PageFaultsStat
+	Took time.Duration `json:"took"`
 }
 
 // PageFaults returns page fault stats
-func PageFaults(ctx context.Context) (*process.PageFaultsStat, error) {
-	return currentProcess.PageFaultsWithContext(ctx)
+func PageFaults(ctx context.Context) (*PageFaultsStat, error) {
+	start := time.Now()
+	stat, err := currentProcess.PageFaultsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &PageFaultsStat{
+		PageFaultsStat: *stat,
+		Took:           time.Since(start),
+	}, nil
+}
+
+type OpenFilesStat struct {
+	OpenFiles []process.OpenFilesStat `json:"openFiles"`
+	Took      time.Duration           `json:"took"`
 }
 
 // OpenFiles returns open file stats
-func OpenFiles(ctx context.Context) ([]process.OpenFilesStat, error) {
-	return currentProcess.OpenFilesWithContext(ctx)
+func OpenFiles(ctx context.Context) (*OpenFilesStat, error) {
+	start := time.Now()
+	openFiles, err := currentProcess.OpenFilesWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &OpenFilesStat{
+		OpenFiles: openFiles,
+		Took:      time.Since(start),
+	}, nil
 }
