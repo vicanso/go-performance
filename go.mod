@@ -1,6 +1,6 @@
 module github.com/vicanso/go-performance
 
-go 1.15
+go 1.16
 
 require (
 	github.com/shirou/gopsutil/v3 v3.21.12
