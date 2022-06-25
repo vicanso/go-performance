@@ -129,3 +129,15 @@ func TestOpenFiles(t *testing.T) {
 	assert.Nil(err)
 	assert.NotNil(stats)
 }
+
+func TestGetPerformance(t *testing.T) {
+	assert := assert.New(t)
+
+	prevPref := GetPerformance(context.Background())
+	assert.NotNil(prevPref)
+
+	pref := GetPerformance(context.Background())
+
+	data := pref.ToMap(prevPref)
+	assert.True(len(data) > 10)
+}

@@ -92,6 +92,16 @@ type CPUMemory struct {
 	CPUTimeStatsTook time.Duration
 }
 
+type Performance struct {
+	CPUMemory
+	IOCountersStat     *IOCountersStat     `json:"ioCountersStat"`
+	ConnStat           *ConnectionsCount   `json:"connStat"`
+	NumCtxSwitchesStat *NumCtxSwitchesStat `json:"numCtxSwitchesStat"`
+	PageFaultsStat     *PageFaultsStat     `json:"pageFaultsStat"`
+	NumFdsStat         *NumFdsStat         `json:"numFdsStat"`
+	OpenFilesStats     *OpenFilesStat      `json:"openFilesStats"`
+}
+
 type ConnectionsCount struct {
 	Status     map[string]int `json:"status"`
 	RemoteAddr map[string]int `json:"remoteAddr"`
@@ -123,6 +133,106 @@ type (
 		Took time.Duration
 	}
 )
+
+func (perf *Performance) ToMap(prevPerf *Performance) map[string]interface{} {
+	fields := map[string]interface{}{
+		"goMaxProcs":   perf.GoMaxProcs,
+		"threadCount":  perf.ThreadCount,
+		"routineCount": perf.RoutineCount,
+		// cpu相关
+		"cpuUsage":     perf.CPUUsage,
+		"cpuUser":      perf.CPUUser,
+		"cpuSystem":    perf.CPUSystem,
+		"cpuIdle":      perf.CPUIdle,
+		"cpuNice":      perf.CPUNice,
+		"cpuIowait":    perf.CPUIowait,
+		"cpuIrq":       perf.CPUIrq,
+		"cpuSoftirq":   perf.CPUSoftirq,
+		"cpuSteal":     perf.CPUSteal,
+		"cpuGuest":     perf.CPUGuest,
+		"cpuGuestNice": perf.CPUGuestNice,
+		// 内存使用相关
+		"memAlloc":      perf.MemAlloc,
+		"memTotalAlloc": perf.MemTotalAlloc,
+		"memSys":        perf.MemSys,
+		"memLookups":    perf.MemLookups,
+
+		"memHeapAlloc":    perf.MemHeapAlloc,
+		"memHeapSys":      perf.MemHeapSys,
+		"memHeapIdle":     perf.MemHeapIdle,
+		"memHeapInuse":    perf.MemHeapInuse,
+		"memHeapReleased": perf.MemHeapReleased,
+		"memHeapObjects":  perf.MemHeapObjects,
+		"memStackInuse":   perf.MemStackInuse,
+		"memStackSys":     perf.MemStackSys,
+		"memMSpanInuse":   perf.MemMSpanInuse,
+		"memMSpanSys":     perf.MemMSpanSys,
+		"memMCacheInuse":  perf.MemMCacheInuse,
+		"memMCacheSys":    perf.MemMCacheSys,
+		"memBuckHashSys":  perf.MemBuckHashSys,
+		"memGCSys":        perf.MemGCSys,
+		"memOtherSys":     perf.MemOtherSys,
+	}
+	if prevPerf != nil {
+		fields["memMallocs"] = int(perf.MemMallocs - prevPerf.MemMallocs)
+		fields["memFrees"] = int(perf.MemFrees - prevPerf.MemFrees)
+		fields["numGC"] = int(perf.NumGC - prevPerf.NumGC)
+		fields["pauseMS"] = int((perf.PauseTotalNs - prevPerf.PauseTotalNs).Milliseconds())
+	}
+	mb := uint64(1024 * 1024)
+
+	// io 相关统计
+	if perf.IOCountersStat != nil &&
+		prevPerf.IOCountersStat != nil {
+		stat := perf.IOCountersStat
+		prevStat := prevPerf.IOCountersStat
+		readCount := stat.ReadCount - prevStat.ReadCount
+		writeCount := stat.WriteCount - prevStat.WriteCount
+		readBytes := stat.ReadBytes - prevStat.ReadBytes
+		writeBytes := stat.WriteBytes - prevStat.WriteBytes
+
+		fields["ioReadCount"] = readCount
+		fields["ioWriteCount"] = writeCount
+		fields["ioReadMBytes"] = readBytes / mb
+		fields["ioWriteMBytes"] = writeBytes / mb
+	}
+
+	// 网络相关
+	if perf.ConnStat != nil {
+		for k, v := range perf.ConnStat.Status {
+			// 如果该状态下对应的连接大于0，则记录此连接数
+			if v > 0 {
+				fields["connTotal"+k] = v
+			}
+		}
+		fields["connTotal"] = perf.ConnStat.Count
+	}
+	// context切换相关
+	if perf.NumCtxSwitchesStat != nil &&
+		prevPerf.NumCtxSwitchesStat != nil {
+		stat := perf.NumCtxSwitchesStat
+		prevStat := prevPerf.NumCtxSwitchesStat
+
+		fields["ctxSwitchesVoluntary"] = stat.Voluntary - prevStat.Voluntary
+		fields["ctxSwitchesInvoluntary"] = stat.Involuntary - prevStat.Involuntary
+	}
+	// page fault相关
+	if perf.PageFaultsStat != nil &&
+		prevPerf.PageFaultsStat != nil {
+		stat := perf.PageFaultsStat
+		prevStat := prevPerf.PageFaultsStat
+		fields["pageFaultMinor"] = stat.MinorFaults - prevStat.MinorFaults
+		fields["pageFaultMajor"] = stat.MajorFaults - prevStat.MajorFaults
+		fields["pageFaultChildMinor"] = stat.ChildMinorFaults - prevStat.ChildMinorFaults
+		fields["pageFaultChildMajor"] = stat.ChildMajorFaults - prevStat.ChildMajorFaults
+	}
+	// fd 相关
+	if perf.NumFdsStat != nil {
+		fields["numFds"] = perf.NumFdsStat.Fds
+	}
+
+	return fields
+}
 
 // cpuUsage cpu使用率
 var cpuUsage atomic.Int32
@@ -463,4 +573,31 @@ func OpenFiles(ctx context.Context) (*OpenFilesStat, error) {
 		OpenFiles: openFiles,
 		Took:      time.Since(start),
 	}, nil
+}
+
+// GetPerformance 获取应用性能指标
+func GetPerformance(ctx context.Context) *Performance {
+	ioCountersStat, _ := IOCounters(ctx)
+	connStat, _ := ConnectionsStat(ctx)
+	numCtxSwitchesStat, _ := NumCtxSwitches(ctx)
+
+	pageFaults, _ := PageFaults(ctx)
+	openFilesStats, _ := OpenFiles(ctx)
+	// fd 可以通过open files获取，减少一次查询
+	var numFdsStat *NumFdsStat
+	if openFilesStats != nil {
+		numFdsStat = &NumFdsStat{
+			Fds:  int32(len(openFilesStats.OpenFiles)),
+			Took: openFilesStats.Took,
+		}
+	}
+	return &Performance{
+		CPUMemory:          CurrentCPUMemory(ctx),
+		IOCountersStat:     ioCountersStat,
+		ConnStat:           connStat,
+		NumCtxSwitchesStat: numCtxSwitchesStat,
+		NumFdsStat:         numFdsStat,
+		PageFaultsStat:     pageFaults,
+		OpenFilesStats:     openFilesStats,
+	}
 }
