@@ -320,11 +320,17 @@ func NewHttpServerConnStats() *httpServerConnStats {
 	return &httpServerConnStats{}
 }
 
+func countTotal(c *cpu.TimesStat) float64 {
+	return c.User + c.System + c.Idle + c.Nice + c.Iowait + c.Irq +
+		c.Softirq + c.Steal + c.Guest + c.GuestNice
+}
+
 func calculatePercent(t1, t2 *cpu.TimesStat, delta float64, numcpu int) float64 {
 	if delta == 0 {
 		return 0
 	}
-	delta_proc := t2.Total() - t1.Total()
+
+	delta_proc := countTotal(t2) - countTotal(t1)
 	overall_percent := ((delta_proc / delta) * 100) * float64(numcpu)
 	return overall_percent
 }
@@ -372,7 +378,7 @@ func CurrentCPUMemory(ctx context.Context) CPUMemory {
 	}
 	cpuBusy := ""
 	if cpuTimes != nil {
-		busy := time.Duration(int64(cpuTimes.Total()-cpuTimes.Idle)) * time.Second
+		busy := time.Duration(int64(countTotal(cpuTimes)-cpuTimes.Idle)) * time.Second
 		cpuBusy = busy.String()
 	} else {
 		cpuTimes = &cpu.TimesStat{}
